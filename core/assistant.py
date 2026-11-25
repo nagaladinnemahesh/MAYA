@@ -1,6 +1,7 @@
 from config.settings import ASSISTANT_NAME, VERSION
 from voice.text_to_speech import TextToSpeech
 from voice.speech_to_text import SpeechToText
+from core.command_processor import CommandProcessor
 
 
 class Maya:
@@ -11,6 +12,7 @@ class Maya:
 
         self.voice = TextToSpeech()
         self.ears = SpeechToText()
+        self.command_processor = CommandProcessor()
 
         self.running = True
 
@@ -24,9 +26,7 @@ class Maya:
 
         self.ears.calibrate()
 
-        self.speak(
-            "Hello sir. All systems are ready."
-        )
+        self.speak("Hello sir. All systems are ready.")
 
         try:
             while self.running:
@@ -38,7 +38,9 @@ class Maya:
 
                 print(f"You: {command}")
 
-                if command.lower().strip() in [
+                command = command.lower().strip()
+
+                if command in [
                     "exit",
                     "goodbye",
                     "stop",
@@ -46,9 +48,10 @@ class Maya:
                 ]:
                     self.speak("Goodbye sir.")
                     self.running = False
+                    break
 
-                else:
-                    self.speak(f"You said {command}")
+                response = self.command_processor.process(command)
+                self.speak(response)
 
         except KeyboardInterrupt:
             self.running = False

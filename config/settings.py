@@ -1,2 +1,7 @@
 ASSISTANT_NAME = "MAYA"
 VERSION = "0.1.0"
+
+# Voice configuration
+VOICE_NAME = "Hazel"
+VOICE_RATE = 165
+VOICE_VOLUME = 1.0

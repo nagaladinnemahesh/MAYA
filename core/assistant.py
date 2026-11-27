@@ -38,9 +38,9 @@ class Maya:
 
                 print(f"You: {command}")
 
-                command = command.lower().strip()
+                command = command.strip()
 
-                if command in [
+                if command.lower() in [
                     "exit",
                     "goodbye",
                     "stop",

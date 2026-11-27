@@ -3,7 +3,7 @@ from tools.system_tools import SystemTools
 from tools.system_monitor import SystemMonitor
 from tools.process_monitor import ProcessMonitor
 from tools.application_manager import ApplicationManager
-
+from tools.web_tools import WebTools
 from core.response_formatter import ResponseFormatter
 from core.confirmation_manager import ConfirmationManager
 
@@ -17,14 +17,14 @@ class CommandProcessor:
         self.monitor = SystemMonitor()
         self.process_monitor = ProcessMonitor()
         self.formatter = ResponseFormatter()
-
+        self.web = WebTools()
         self.application_manager = ApplicationManager()
         self.confirmation_manager = ConfirmationManager(
             timeout=30
         )
 
     def process(self, command):
-
+        original_command = command.strip()
         command = command.lower().strip()
 
         # Confirmation handling
@@ -73,17 +73,42 @@ class CommandProcessor:
 
         # Website control
 
-        if command == "open youtube":
-            return self.system.open_youtube()
+        if command.startswith("search google for "):
+            query = original_command[
+                len("search google for "):
+            ].strip()
 
-        # Application opening
+            return self.web.search_google(query)
+
+        elif command.startswith("search youtube for "):
+            query = original_command[
+                len("search youtube for "):
+            ].strip()
+
+            return self.web.search_youtube(query)
+
+        elif command.startswith("search the web for "):
+            query = original_command[
+                len("search the web for "):
+            ].strip()
+
+            return self.web.search_google(query)
 
         elif command.startswith("open "):
+            target = original_command[5:].strip()
 
-            application_name = command[5:].strip()
+            if self.application_manager.resolve_application(target):
+                return self.application_manager.open_application(target)
 
-            return self.application_manager.open_application(
-                application_name
+            if self.web.resolve_website(target):
+                return self.web.open_website(target)
+
+            if self.web.validate_url(target):
+                return self.web.open_url(target)
+
+            return (
+                f"Sir, {target} is not a registered "
+                "application or website, or a valid URL."
             )
 
         # Application closing

@@ -136,6 +136,57 @@ class CommandProcessor:
                 "may affect unsaved work. "
                 "Say confirm or cancel."
             )
+        
+        elif command.startswith("restart "):
+
+            application_name = command[8:].strip()
+
+            application = (
+                self.application_manager.resolve_application(
+                    application_name
+                )
+            )
+
+            if application is None:
+                return (
+                    f"Sir, {application_name} is not "
+                    "registered in my application registry."
+                )
+
+            if application["name"] in [
+                "File Explorer",
+                "Task Manager"
+            ]:
+                return (
+                    f"Sir, {application['name']} is protected "
+                    "from application restart."
+                )
+
+            windows = (
+                self.application_manager.get_application_windows(
+                    application_name
+                )
+            )
+
+            if not windows:
+                return (
+                    f"Sir, no matching visible windows were "
+                    f"found for {application['name']}."
+                )
+
+            self.confirmation_manager.request_confirmation(
+                "restart_application",
+                {
+                    "application_name": application_name,
+                    "windows": windows
+                }
+            )
+
+            return (
+                f"Sir, restarting {application['name']} "
+                "may affect unsaved work. "
+                "Say confirm or cancel."
+            )
 
         # Running application listing
 
@@ -279,6 +330,14 @@ class CommandProcessor:
         if action_name == "close_application":
 
             return self.application_manager.close_application(
+                application_name=parameters["application_name"],
+                confirmed=True,
+                windows=parameters["windows"]
+            )
+
+        elif action_name == "restart_application":
+
+            return self.application_manager.restart_application(
                 application_name=parameters["application_name"],
                 confirmed=True,
                 windows=parameters["windows"]

@@ -6,6 +6,7 @@ import psutil
 import win32gui
 import win32con
 import win32process
+import time
 
 from config.applications import APPLICATIONS
 
@@ -262,58 +263,149 @@ class ApplicationManager:
         windows=None
     ):
 
+        result = self.request_application_close(
+            application_name=application_name,
+            confirmed=confirmed,
+            windows=windows
+        )
+
         application = self.resolve_application(
             application_name
         )
 
-        if application is None:
+        if result["error"] == "application_not_registered":
             return "Sir, this application is not registered."
 
-        if application is self.applications["explorer"]:
+        application_display_name = application["name"]
+
+        if result["error"] == "protected_application":
             return (
-                "Sir, File Explorer is protected "
+                f"Sir, {application_display_name} is protected "
                 "from application closing."
             )
 
-        if application is self.applications["task_manager"]:
+        if result["error"] == "confirmation_required":
             return (
-                "Sir, Task Manager is protected "
-                "from application closing."
-            )
-
-        if confirmed is not True:
-            return (
-                f"Sir, closing {application['name']} "
+                f"Sir, closing {application_display_name} "
                 "may affect unsaved work. "
                 "Confirmation is required."
             )
 
-        if not windows:
+        if result["error"] == "no_approved_windows":
             return (
                 "Sir, no approved window snapshots "
                 "are available."
             )
 
-        # Validate all approved windows
+        if result["error"] == "window_validation_failed":
+            return (
+                "Sir, the approved windows have changed. "
+                "Closing operation cancelled. "
+                "Please request the action again."
+            )
+
+        if result["error"] == "close_request_failed":
+            return (
+                f"Sir, I could not request "
+                f"{application_display_name} to close."
+            )
+
+        if result["error"] == "partial_close_request":
+            return (
+                f"Sir, only {result['requested']} of "
+                f"{result['total']} approved "
+                f"{application_display_name} windows "
+                "received closing requests. "
+                "Please check the remaining windows."
+            )
+
+        if result["success"]:
+            return (
+                f"Sir, I have requested "
+                f"{result['requested']} of "
+                f"{result['total']} approved "
+                f"{application_display_name} windows to close. "
+                "Please check for any save prompts."
+            )
+
+        return "Sir, an unexpected closing error occurred."
+    
+    def wait_for_application_exit(
+        self,
+        application_name,
+        timeout=5
+    ):
+
+        start_time = time.monotonic()
+
+        while time.monotonic() - start_time < timeout:
+
+            running = self.is_application_running(
+                application_name
+            )
+
+            if running is False:
+                return True
+
+            if running is None:
+                return False
+
+            time.sleep(0.5)
+
+        return (
+            self.is_application_running(application_name)
+            is False
+        )
+    def request_application_close(
+        self,
+        application_name,
+        confirmed=False,
+        windows=None
+    ):
+
+        result = {
+            "success": False,
+            "requested": 0,
+            "total": len(windows) if windows else 0,
+            "error": None
+        }
+
+        application = self.resolve_application(
+            application_name
+        )
+
+        if application is None:
+            result["error"] = "application_not_registered"
+            return result
+
+        if application["name"] in [
+            "File Explorer",
+            "Task Manager"
+        ]:
+            result["error"] = "protected_application"
+            return result
+
+        if confirmed is not True:
+            result["error"] = "confirmation_required"
+            return result
+
+        if not windows:
+            result["error"] = "no_approved_windows"
+            return result
+
         for window in windows:
 
             if not self.validate_window(
                 window,
                 application_name
             ):
-                return (
-                    "Sir, the approved windows have changed. "
-                    "Closing operation cancelled. "
-                    "Please request the action again."
-                )
-
-        requested = 0
+                result["error"] = "window_validation_failed"
+                return result
 
         for window in windows:
 
             try:
 
-                # Revalidate immediately before execution
                 if not self.validate_window(
                     window,
                     application_name
@@ -327,20 +419,142 @@ class ApplicationManager:
                     0
                 )
 
-                requested += 1
+                result["requested"] += 1
 
             except (OSError, win32gui.error) as error:
+
                 print(f"Window closing error: {error}")
 
-        if requested == 0:
+        if result["requested"] == result["total"]:
+            result["success"] = True
+
+        elif result["requested"] == 0:
+            result["error"] = "close_request_failed"
+
+        else:
+            result["error"] = "partial_close_request"
+
+        return result
+    
+    def restart_application(
+        self,
+        application_name,
+        confirmed=False,
+        windows=None
+    ):
+
+        application = self.resolve_application(
+            application_name
+        )
+
+        if application is None:
+            return "Sir, this application is not registered."
+
+        display_name = application["name"]
+
+        if display_name in [
+            "File Explorer",
+            "Task Manager"
+        ]:
             return (
-                f"Sir, I could not request "
-                f"{application['name']} to close."
+                f"Sir, {display_name} is protected "
+                "from application restart."
             )
 
-        return (
-            f"Sir, I have requested {requested} of "
-            f"{len(windows)} approved "
-            f"{application['name']} windows to close. "
-            "Please check for any save prompts."
+        if confirmed is not True:
+            return (
+                f"Sir, restarting {display_name} "
+                "may affect unsaved work. "
+                "Confirmation is required."
+            )
+
+        executable = self.find_executable(application)
+
+        if executable is None:
+            return (
+                f"Sir, I could not locate {display_name}. "
+                "Restart cancelled."
+            )
+
+        if not windows:
+            return (
+                "Sir, no approved window snapshots "
+                "are available."
+            )
+
+        current_windows = self.get_application_windows(
+            application_name
         )
+
+        approved_identities = {
+            (
+                window["hwnd"],
+                window["pid"],
+                window["created_at"]
+            )
+            for window in windows
+        }
+
+        current_identities = {
+            (
+                window["hwnd"],
+                window["pid"],
+                window["created_at"]
+            )
+            for window in current_windows
+        }
+
+        if approved_identities != current_identities:
+            return (
+                "Sir, the application windows have changed. "
+                "Restart cancelled. "
+                "Please request the action again."
+            )
+
+        result = self.request_application_close(
+            application_name=application_name,
+            confirmed=True,
+            windows=windows
+        )
+
+        if not result["success"]:
+            return (
+                f"Sir, I could not submit all closing "
+                f"requests for {display_name}. "
+                "Restart cancelled."
+            )
+
+        if not self.wait_for_application_exit(
+            application_name,
+            timeout=5
+        ):
+            return (
+                f"Sir, {display_name} is still running. "
+                "Please check for unsaved work "
+                "or background processes. "
+                "Restart cancelled."
+            )
+
+        if self.is_application_running(application_name) is not False:
+            return (
+                f"Sir, {display_name} is running again. "
+                "Restart cancelled."
+            )
+
+        try:
+
+            subprocess.Popen([executable])
+
+            return (
+                f"Sir, {display_name} has exited "
+                "and a new launch has been requested."
+            )
+
+        except OSError as error:
+
+            print(f"Application restart error: {error}")
+
+            return (
+                f"Sir, {display_name} was closed, "
+                "but I was unable to relaunch it."
+            )

@@ -127,7 +127,8 @@ class CommandProcessor:
 
             self.confirmation_manager.request_confirmation(
                 "close_application",
-                {"application_name": application_name}
+                {"application_name": application_name,
+                 "windows": windows}
             )
 
             return (
@@ -278,8 +279,9 @@ class CommandProcessor:
         if action_name == "close_application":
 
             return self.application_manager.close_application(
-                parameters["application_name"],
-                confirmed=True
+                application_name=parameters["application_name"],
+                confirmed=True,
+                windows=parameters["windows"]
             )
 
         return "Sir, this action is not supported."

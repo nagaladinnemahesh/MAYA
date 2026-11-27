@@ -198,7 +198,8 @@ class ApplicationManager:
                     windows.append({
                         "hwnd": hwnd,
                         "pid": pid,
-                        "title": title
+                        "title": title,
+                        "created_at": process.create_time()
                     })
 
             except (psutil.Error, OSError, win32gui.error):
@@ -209,9 +210,56 @@ class ApplicationManager:
         win32gui.EnumWindows(enum_callback, None)
 
         return windows
+    
+    def validate_window(self, window, application_name):
+
+        application = self.resolve_application(
+            application_name
+        )
+
+        if application is None:
+            return False
+
+        process_names = {
+            name.lower()
+            for name in application["process_names"]
+        }
+
+        try:
+
+            hwnd = window["hwnd"]
+
+            if not win32gui.IsWindow(hwnd):
+                return False
+
+            if not win32gui.IsWindowVisible(hwnd):
+                return False
+
+            _, pid = win32process.GetWindowThreadProcessId(
+                hwnd
+            )
+
+            if pid != window["pid"]:
+                return False
+
+            process = psutil.Process(pid)
+
+            if process.name().lower() not in process_names:
+                return False
+
+            if process.create_time() != window["created_at"]:
+                return False
+
+            return True
+
+        except (psutil.Error, OSError, win32gui.error):
+            return False
 
     def close_application(
-        self, application_name, confirmed=False
+        self,
+        application_name,
+        confirmed=False,
+        windows=None
     ):
 
         application = self.resolve_application(
@@ -220,8 +268,6 @@ class ApplicationManager:
 
         if application is None:
             return "Sir, this application is not registered."
-
-        # Protect Windows system applications
 
         if application is self.applications["explorer"]:
             return (
@@ -235,8 +281,6 @@ class ApplicationManager:
                 "from application closing."
             )
 
-        # Require confirmation before closing
-
         if confirmed is not True:
             return (
                 f"Sir, closing {application['name']} "
@@ -244,23 +288,38 @@ class ApplicationManager:
                 "Confirmation is required."
             )
 
-        windows = self.get_application_windows(
-            application_name
-        )
-
         if not windows:
             return (
-                f"Sir, no matching visible windows were "
-                f"found for {application['name']}."
+                "Sir, no approved window snapshots "
+                "are available."
             )
 
-        requested = 0
+        # Validate all approved windows
+        for window in windows:
 
-        # Request graceful window closing
+            if not self.validate_window(
+                window,
+                application_name
+            ):
+                return (
+                    "Sir, the approved windows have changed. "
+                    "Closing operation cancelled. "
+                    "Please request the action again."
+                )
+
+        requested = 0
 
         for window in windows:
 
             try:
+
+                # Revalidate immediately before execution
+                if not self.validate_window(
+                    window,
+                    application_name
+                ):
+                    continue
+
                 win32gui.PostMessage(
                     window["hwnd"],
                     win32con.WM_CLOSE,
@@ -280,7 +339,8 @@ class ApplicationManager:
             )
 
         return (
-            f"Sir, I have requested {requested} "
+            f"Sir, I have requested {requested} of "
+            f"{len(windows)} approved "
             f"{application['name']} windows to close. "
             "Please check for any save prompts."
         )
